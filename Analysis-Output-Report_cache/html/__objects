@@ -1,0 +1,30 @@
+load-packages	
+unnamed-chunk-1	
+unnamed-chunk-2	math_data	stu_math	var
+load-data	math_data	stu_math
+split-data	math_trn_x_bin	math_trn_x_class	math_tst_x_bin	math_tst_x_class	stumath_trn	stumath_tst	trn_idx	.Random.seed
+functions	calc_accy
+cv-control-multi	cv_multi
+multiclass-knn	fit_multiclass_knn
+multiclass-rf	fit_multiclass_rf
+binary-gbm	fit_bin_gbm
+binary-rf	fit_bin_rf
+binary-lasso	fit_glmnet_lasso
+binary-ridge	fit_glmnet_ridge
+custom-cv-function	calc_fold_mat
+unnamed-chunk-3	cv_tab	folds	tabs
+multiclass-confusion-helper	smash_table
+unnamed-chunk-4	.Analysis-Output-Report_cache/html/unnamed-chunk-4_636f6569289906a86cf60b26c45d069b_meta
+unnamed-chunk-5	.Analysis-Output-Report_cache/html/unnamed-chunk-5_33823698da8a44fa1dfa9c761b5ea471_meta
+unnamed-chunk-6	.Analysis-Output-Report_cache/html/unnamed-chunk-6_5b5522db241e9720964d8baea189b194_meta
+unnamed-chunk-7	accy	gbmbin_accy	knnclass_accy	lasso_accy	pred1	pred2	rangerclass_accy	rfbin_accy	ridge_accy
+unnamed-chunk-8	.Analysis-Output-Report_cache/html/unnamed-chunk-8_61cc9994b17177f591c5ddc9bf1dab4d_meta
+unnamed-chunk-9	pred_tst	tst_tab	tst_tab_perc	.Analysis-Output-Report_cache/html/unnamed-chunk-9_33d28b634d1c14b8934c8a9360172c64_meta
+school-eda	
+eda-numeric	.Analysis-Output-Report_cache/html/eda-numeric_a8121cdc9a97992dfdb209250b3212b4_meta
+create-eda-plots	p1	p3	p4	p5	p6
+unnamed-chunk-10	.Analysis-Output-Report_cache/html/unnamed-chunk-10_d9cf8c9c6eda34ce116f87d4aed01c52_meta
+unnamed-chunk-11	.Analysis-Output-Report_cache/html/unnamed-chunk-11_183214a04307dadab5753c5b81ae62f4_meta
+unnamed-chunk-12	.Analysis-Output-Report_cache/html/unnamed-chunk-12_c34ae18543248662b23af6a7a3cc0454_meta
+unnamed-chunk-13	.Analysis-Output-Report_cache/html/unnamed-chunk-13_08f955d5eb9860c0808d00d0fa8d4b22_meta
+unnamed-chunk-14	.Analysis-Output-Report_cache/html/unnamed-chunk-14_9e24326c5dab908800fdce926fd36d86_meta

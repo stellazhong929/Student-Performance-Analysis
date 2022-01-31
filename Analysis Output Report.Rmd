@@ -1,0 +1,565 @@
+---
+title: "Student Performance Analysis"
+author: "Wenxin Zhong"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  html_document: 
+    theme: cosmo
+    toc: yes
+  pdf_document: default
+urlcolor: BrickRed
+---
+```{r, setup, include = FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE,
+  fig.align = "center",
+  cache = TRUE,
+  autodep = TRUE
+)
+```
+
+```{r, load-packages, include = FALSE, message = FALSE}
+library("tidyverse")
+library("rsample")
+library("caret")
+library("kableExtra")
+library("tibble")
+library("rpart")
+library("nnet")
+library("dplyr")
+library('randomForest')
+library("e1071")
+library("glmnet")
+library("ranger")
+```
+
+```{r, include=FALSE}
+theme_set(theme_light())
+```
+
+***
+
+# Abstract
+
+> Statistical learning methods were applied to student performance data in order to test attributions of student's achievement. A variety of learning techniques were explored and validated. Simple methods like logistic regression show promise, especially given their computational efficiency at test time.
+
+***
+
+# Introduction
+
+Parents and educators are always concerned with their children’s performance at school since the school's performance is related to children's development in the long run. Children's grade at school is an important aspect to show children's performance because the grade is based on how much effort the student put into and their willingness to learn new things. Also, a good grade can motivate the children to build confidence. For this reason, children's grade is a significant aspect when research children's performance. 
+
+From all the courses the children learned at school, the grade of math is especially a big concern for many parents because Mathematics grades can show the understanding, computing, applying, reasoning and engaging ability of a child. These five features are also interdependent with each other. We are also interested in mathematics performance because students throughout the world take math courses, we think studying on the math grade is more representative and meaningful to understand students’ performance.
+
+***
+
+# Method
+
+## Data
+
+The dataset is found on UCI Machine Learning [^1] and is gathered by Paulo Cortez from the University of Minho, GuimarÃ£es, Portugal. This dataset contains 33 attributes, including student's grade(G1 for the first period, G2 for the second period, G3 for the final grade), demographic, social and many school-related features. The data was collected using school reports and questionnaires. 
+
+Some exploratory data analysis can be found in the appendix.
+
+```{r}
+# load data
+stu_math = read.csv("student-mat.csv", header = TRUE, sep = ";")
+
+# subset data
+var = c(
+  "school",
+  "sex",
+  "age",
+  "Medu",
+  "Fedu",
+  "traveltime",
+  "studytime",
+  "failures",
+  "schoolsup",
+  "famsup",
+  "paid",
+  "activities",
+  "nursery",
+  "higher",
+  "internet",
+  "romantic",
+  "famrel",
+  "freetime",
+  "goout",
+  "Dalc",
+  "Walc",
+  "health",
+  "absences",
+  "G3",
+  "G2",
+  "G1"
+)
+
+math_data = stu_math[var]
+```
+
+```{r, load-data, message = FALSE}
+require("dplyr")
+
+# convert "Y/N" data into numeric form
+stu_math <- stu_math %>%
+  mutate(schoolsup = ifelse(schoolsup == "no", 0, 1))
+stu_math <- stu_math %>%
+  mutate(famsup = ifelse(famsup == "no", 0, 1))
+stu_math <- stu_math %>%
+  mutate(paid = ifelse(paid == "no", 0, 1))
+stu_math <- stu_math %>%
+  mutate(activities = ifelse(activities == "no", 0, 1))
+stu_math <- stu_math %>%
+  mutate(nursery = ifelse(nursery == "no", 0, 1))
+stu_math <- stu_math %>%
+  mutate(higher = ifelse(higher == "no", 0, 1))
+stu_math <- stu_math %>%
+  mutate(internet = ifelse(internet == "no", 0, 1))
+stu_math <- stu_math %>%
+  mutate(romantic = ifelse(romantic == "no", 0, 1))
+
+# re-define response variable for multi classification
+math_data$G3_letter = factor(
+  case_when(
+    math_data$G3 <= 20 & math_data$G3 >= 18 ~ "A",
+    math_data$G3 <= 17 & math_data$G3 >= 16 ~ "B",
+    math_data$G3 <= 15 & math_data$G3 >= 14 ~ "C",
+    math_data$G3 <= 13 & math_data$G3 >= 12 ~ "D",
+    math_data$G3 <= 11 & math_data$G3 >= 10 ~ "E",
+    math_data$G3 < 10  ~ "F"
+  )
+)
+
+# re-define the response for binary classification
+math_data$G3_bin = factor(case_when(math_data$G3 < 10 ~ "Fail",
+                                    TRUE ~ "Pass"))
+```
+
+```{r, split-data, include=FALSE}
+# set seed to reproduce split
+set.seed(42)
+
+# test-train split
+trn_idx = sample(nrow(stu_math), size = 0.5 * nrow(stu_math))
+stumath_trn = math_data[trn_idx,]
+stumath_tst = math_data[-trn_idx,]
+
+# create x matrix (train and test) for use with cv.glmnet() - Classification
+math_trn_x_class = model.matrix(G3_letter ~ . - G3 - G3_bin, data = stumath_trn)[,-1]
+math_tst_x_class = model.matrix(G3_letter ~ . - G3 - G3_bin, data = stumath_tst)[,-1]
+
+# create x matrix (train and test) for use with cv.glmnet() - Binary
+math_trn_x_bin = model.matrix(G3_bin ~ . - G3 - G3_letter, data = stumath_trn)[,-1]
+math_tst_x_bin = model.matrix(G3_bin ~ . - G3 - G3_letter, data = stumath_tst)[,-1]
+```
+
+## Modeling
+
+In order to detect the students' achievement, several classification strategies were explored. Both multiclass models and  binary models were considered into use. 
+we use following modeling strategies:
+
+- k-Nearest Neighbour model, through the use of `caret` package. 
+
+- Random Forests, though the use of the `ranger` package. (The `ranger` packages implements random forests, as well as extremely randomized trees. The difference is considered a tuning parameter.)
+
+-Boosted Model, using training data from "caret" package, and Stochastic Gradient Boosting through the use of the gbm method. 
+
+-logistic regression with a lasso regression, we created a matrix for use with cv.glmnet() function to fit a logistic regression with alpha=1.
+
+-logistic regression with a ridge regression, we created a matrix for use with cv.glmnet() function to fit a logistic regression with alpha=0.
+
+### Evaluation
+
+All models were tuned using 10-fold cross-validation through the use of the `caret` package. Multiclass models and binary models were both tuned for accuracy.
+
+Models were ultimately evaluated based on their ability to predict the students' math grade level. Compared with multiclass models and binary models, all binary models have higher accuracy than multiclass models. Thus, binary models is better than multiclass models in evaluating the students' math grade in real life. 
+
+```{r, functions, include = FALSE}
+calc_accy = function(actual, predicted) {
+  mean (actual == predicted)
+}
+```
+
+### Multiclass Classification
+
+```{r,cv-control-multi, echo = TRUE}
+cv_multi = trainControl(method = "cv", number = 10)
+```
+
+```{r, multiclass-knn, echo = TRUE}
+#knn model for multiclass classification
+set.seed(42)
+fit_multiclass_knn = train(
+  G3_letter ~ . - G3 - G3_bin,
+  data = stumath_trn,
+  method = "knn",
+  trControl = trainControl(method = "cv", number = 10)
+)
+```
+
+```{r,multiclass-rf,echo=TRUE}
+# random forest model for multiclass classification
+set.seed(42)
+fit_multiclass_rf = train(
+  G3_letter ~ . - G3 - G3_bin,
+  data = stumath_trn,
+  method = "ranger",
+  trControl = trainControl(method = "cv", number = 10),
+  verbose = FALSE
+)
+```
+
+## Binary Classification
+
+```{r, binary-gbm, echo = TRUE}
+#boosted model for binary classification
+set.seed(42)
+fit_bin_gbm = train(
+  form = G3_bin ~ . - G3_letter - G3,
+  data = stumath_trn,
+  method = "gbm",
+  trControl = trainControl(
+    method = "cv",
+    number = 10,
+    classProbs = TRUE,
+    summaryFunction = twoClassSummary
+  ),
+  metric = "Sens",
+  verbose = FALSE
+)
+```
+
+```{r, binary-rf, echo = TRUE}
+#random forest for binary classification
+set.seed(42)
+fit_bin_rf = randomForest(
+  G3_bin ~ . - G3 - G3_letter,
+  data = stumath_trn,
+  mtry = 10,
+  ntree = 200
+)
+```
+
+```{r,binary-lasso,echo=TRUE}
+#logistic regression with a lasso regression penalty
+set.seed(42)
+fit_glmnet_lasso = cv.glmnet(
+  math_trn_x_bin,
+  stumath_trn$G3_bin,
+  nfolds = 10,
+  alpha = 1 ,
+  family = "binomial"
+)
+```
+
+```{r,binary-ridge,echo=TRUE}
+#logistic regression with a ridge regression penalty
+set.seed(42)
+fit_glmnet_ridge = cv.glmnet(
+  math_trn_x_bin,
+  stumath_trn$G3_bin,
+  nfolds = 10,
+  alpha = 0 ,
+  family = "binomial"
+)
+```
+
+```{r, custom-cv-function}
+calc_fold_mat = function(fold) {
+  est = stumath_trn[-fold,]
+  val = stumath_trn[fold,]
+  mod = randomForest(
+    G3_bin ~ . - G3 - G3_letter,
+    data = stumath_trn,
+    mtry = 10,
+    ntree = 200
+  )
+  preds = ifelse(predict(mod, val, type = "prob")[, "Pass"] > 0.50,
+                 "Predict: Pass",
+                 "Predict: Fail")
+  table(predicted = preds,
+        reference = val$G3_letter)
+}
+```
+
+```{r}
+set.seed(42)
+folds = createFolds(stumath_trn$G3_bin, k = 10)
+tabs  = map(folds, calc_fold_mat)
+cv_tab = 100 * (Reduce("+", tabs) / Reduce(sum, tabs))
+```
+
+***
+
+# Result
+
+Based on the results of the final grade letter table, the result matches practical case. Students who have F in our calculated method predict as fail.
+
+We use accuracy to find the best model. Acoording to accuracy, all binary models have high accuracy, and the best model is the random Forest model with binary classification since it has the highest accuracy. 
+
+```{r, multiclass-confusion-helper,include = FALSE}
+smash_table = function(tab, caption = caption) {
+  out = rbind(tab$table[6,],
+              colSums(tab$table[1:5,]))
+  
+  rownames(out) = c("Predict: Fail", "Predict: Pass")
+  
+  out %>%
+    kable(caption = caption, digits = 3) %>%
+    kable_styling("striped", full_width = FALSE) %>%
+    add_header_above(c(" " = 1, "Final Grade Letter" = 6)) %>%
+    column_spec(column = 1, bold = TRUE)
+}
+```
+
+```{r,}
+smash_table(
+  confusionMatrix(fit_multiclass_knn),
+  caption = "Table: **Multiclass KNN Model**, Cross-Validated
+                       Binary Predictions versus Multiclass Response, Percent"
+)
+```
+
+```{r}
+smash_table(
+  confusionMatrix(fit_multiclass_rf),
+  caption = "Table: **Multiclass Random Forest**, Cross-Validated
+                       Binary Predictions versus Multiclass Response, Percent"
+)
+```
+
+## Cross-Validation
+
+```{r}
+kable(
+  cv_tab,
+  digits = 3,
+  caption = "Table: **Binary Logistic Regression**, Cross-Validated Binary
+                 Predictions versus Multiclass Response, Percent"
+) %>%
+  kable_styling("striped", full_width = FALSE) %>%
+  add_header_above(c(" " = 1, "True Number of Valves" = 6)) %>%
+  column_spec(column = 1, bold = TRUE)
+```
+
+## Accuracy Comparison 
+
+```{r}
+#Classification
+##knn
+knnclass_accy = calc_accy(
+  actual = stumath_tst$G3_letter,
+  predicted = predict(fit_multiclass_knn, stumath_tst, type = "raw")
+)
+##random forest
+rangerclass_accy = calc_accy(
+  actual = stumath_tst$G3_letter,
+  predicted = predict(fit_multiclass_rf, stumath_tst, type = "raw")
+)
+#Binary
+##gbm
+gbmbin_accy = calc_accy(
+  actual = stumath_tst$G3_bin,
+  predicted = predict(fit_bin_gbm, stumath_tst, type = "raw")
+)
+##rf
+rfbin_accy = calc_accy(
+  actual = stumath_tst$G3_bin,
+  predicted = predict(fit_bin_rf, stumath_tst, type = "class")
+)
+##cvglmnet lasso
+pred1 = predict(fit_glmnet_lasso,
+                math_tst_x_bin,
+                s = "lambda.min",
+                type = "class")
+lasso_accy = confusionMatrix(data = factor(pred1), reference = stumath_tst$G3_bin)$overall["Accuracy"]
+##cvglmnet ridge
+pred2 = predict(fit_glmnet_ridge,
+                math_tst_x_bin,
+                s = "lambda.min",
+                type = "class")
+ridge_accy = confusionMatrix(data = factor(pred2), reference = stumath_tst$G3_bin)$overall["Accuracy"]
+
+accy = c(knnclass_accy,
+         rangerclass_accy,
+         gbmbin_accy,
+         rfbin_accy,
+         lasso_accy,
+         ridge_accy)
+```
+
+```{r}
+tibble(
+  'Model' = c(
+    "KNN Classification Model",
+    "Random Forest Classification Model",
+    "GBM Binary Model",
+    "Random Forest Binary Model",
+    "Logistic Regression With a Lasso Regression Penalty ",
+    "Logistic Regression With a Ridge Regression Penalty"
+  ),
+  'Accuracy' = accy
+  
+) %>%
+  kable(digits = 3, caption = "Table:Accuracy Comparison") %>%
+  kable_styling("striped", full_width = FALSE)
+```
+
+***
+
+# Discussion
+
+The results show promise, the accuracy for binary model using `randomForest` method is high and shows its reliability. The below table also summarizes the results of the chosen model on a held-out test dataset. The output valus are still ideal, which means our models can be applicable to reality.
+
+```{r}
+pred_tst = predict(fit_bin_rf, stumath_tst)
+tst_tab = table(predicted = pred_tst, actual = stumath_tst$G3_letter)
+rownames(tst_tab) = c("Predict: Fail", "Predict: Pass")
+tst_tab_perc = 100 * tst_tab / sum(tst_tab)
+
+
+tst_tab_perc %>%
+  kable(digits = 3, caption = "Table: Test Results, **Binary RandomForest Model**, Percent") %>%
+  kable_styling("striped", full_width = FALSE) %>%
+  add_header_above(c(" " = 1, "True Number of Valves" = 6)) %>%
+  column_spec(column = 1, bold = TRUE)
+```
+
+Also, the model shows that students' math grade is highly related to factors we used, including school, sex, age mother and father's education, studytime, number of past class failures,extra educational support,family educational support and so on, and such many variables is one reason why our accuracy is high. In real life, there are many things can affect students' achievement at school, and that is the same as what we analysis in our project. So, it is not an easy thing if one want to improve his/her performance at school, because he/she need to put more efforts in study and change his/hers study habits. 
+
+Despite the somewhat promising result, some serious issues occurred with this dataset. Firstly, there are problems with the sampling procedure used to collect the data. More data from school Gabriel Pereira than Mousinho da Silveira was collected in the dataset. This issue would be problematic since there are definitely existing confounders between different schools, such as teaching style or school type (public or private). In addition, the data was collected specifically from  Portugal. Using the model outside the nation might also result in terrible extrapolation.
+
+Additional analysis based on updated data collection is recommended.
+
+```{r, school-eda, fig.height = 6, fig.width = 6}
+stumath_trn %>%
+  ggplot(aes(x = G3_bin, fill = G3_bin)) +
+  geom_bar() +
+  facet_wrap(~ school) +
+  labs(fill = "Pass/Fail", x = "") +
+  ggtitle("Figure: Fail / Pass Amount by School")
+```
+
+
+***
+
+# Appendix
+
+## Data Dictionary
+
+- `school` - student's school (binary: 'GP' - Gabriel Pereira or 'MS' - Mousinho da Silveira) 
+- `sex` - student's sex (binary: 'F' - female or 'M' - male) 
+- `age` - student's age (numeric: from 15 to 22) 
+- `address` - student's home address type (binary: 'U' - urban or 'R' - rural) 
+- `Medu` - mother's education (numeric: 0 - none, 1 - primary education (4th grade), 2 â€“ 5th to 9th grade, 3 â€“ secondary education or 4 â€“ higher education) 
+- `Fedu` - father's education (numeric: 0 - none, 1 - primary education (4th grade), 2 â€“ 5th to 9th grade, 3 â€“ secondary education or 4 â€“ higher education) 
+- `traveltime` - home to school travel time (numeric: 1 - <15 min., 2 - 15 to 30 min., 3 - 30 min. to 1 hour, or 4 - >1 hour) 
+- `studytime` - weekly study time (numeric: 1 - <2 hours, 2 - 2 to 5 hours, 3 - 5 to 10 hours, or 4 - >10 hours) 
+- `failures` - number of past class failures (numeric: n if 1<=n<3, else 4) 
+- `schoolsup` - extra educational support (binary: yes or no) 
+- `famsup` - family educational support (binary: yes or no) 
+- `paid` - extra paid classes within the course subject (Math or Portuguese) (binary: yes or no) 
+- `activities` - extra-curricular activities (binary: yes or no) 
+- `nursery` - attended nursery school (binary: yes or no) 
+- `higher` - wants to take higher education (binary: yes or no) 
+- `internet` - Internet access at home (binary: yes or no) 
+- `romantic` - with a romantic relationship (binary: yes or no) 
+- `famrel` - quality of family relationships (numeric: from 1 - very bad to 5 - excellent) 
+- `freetime` - free time after school (numeric: from 1 - very low to 5 - very high) 
+- `goout` - going out with friends (numeric: from 1 - very low to 5 - very high)
+- `Dalc` - workday alcohol consumption (numeric: from 1 - very low to 5 - very high) 
+- `Walc` - weekend alcohol consumption (numeric: from 1 - very low to 5 - very high) 
+- `health` - current health status (numeric: from 1 - very bad to 5 - very good)
+- `absences` - number of school absences (numeric: from 0 to 93) 
+- `G1` - first period grade (numeric: from 0 to 20) 
+- `G2` - second period grade (numeric: from 0 to 20) 
+- `G3` - final grade (numeric: from 0 to 20, output target)
+
+See the documentation for the `ucidata` package or the UCI website for additional documentation.
+
+## EDA
+
+```{r, eda-numeric}
+stumath_trn %>%
+  group_by(G3_bin) %>%
+  summarise(
+    "Count" = n(),
+    "5th Percent" = quantile(G3, prob = 0.05),
+    "1st Quantile" = quantile(G3, prob = 0.25),
+    "Median" = median(G3),
+    "3rd Quantile" = quantile(G3, prob = 0.75),
+    "95th Percent" = quantile(G3, prob = 0.95)
+  ) %>%
+  kable(caption = "Table: Statistics by Outcome, Training Data") %>%
+  kable_styling("striped", full_width = FALSE) %>%
+  add_header_above(c(" " = 2, "Fail / Pass Amount" = 5))
+```
+
+```{r, create-eda-plots, fig.height = 36, fig.width = 24}
+p1 = stumath_trn %>%
+  ggplot(aes(x = G3_bin, fill = G3_bin)) +
+  geom_bar() +
+  facet_wrap(~ sex) +
+  labs(fill = "Pass/Fail", x = "") +
+  ggtitle("Figure: Fail / Pass Amount by Gender ")
+
+p3 = stumath_trn %>%
+  ggplot(aes(x = G3_letter, fill = G3_letter)) +
+  geom_bar() +
+  facet_wrap( ~ school) +
+  labs(fill = "Letter Grade", x = "") +
+  ggtitle("Figure: Letter Grade by School")
+
+p4 = stumath_trn %>%
+  ggplot(aes(x = age, col = G3_bin)) +
+  geom_density() +
+  ggtitle("Figure: Fail / Pass Amount by Age")
+
+p5 = stumath_trn %>%
+  ggplot(aes(x = G1, col = G3_bin)) +
+  geom_density() +
+  ggtitle("Figure: Fail / Pass Amount by First Period Grade")
+
+p6 = stumath_trn %>%
+  ggplot(aes(x = G2, col = G3_bin)) +
+  geom_density() +
+  ggtitle("Figure: Fail / Pass Amount by Second Period Grade")
+
+gridExtra::grid.arrange(p1, p3, p4, p5, p6, ncol = 2)
+```
+
+## Additional Results
+
+```{r}
+fit_multiclass_knn$results %>%
+  kable(digits = 3, caption = "Table: KNN Multiclass Classification Result") %>%
+  kable_styling("striped", full_width = FALSE)
+```
+
+```{r}
+fit_multiclass_rf$results %>%
+  kable(digits = 3, caption = "Table: Random Forest Multiclass Classification Result") %>%
+  kable_styling("striped", full_width = FALSE)
+```
+
+```{r}
+fit_bin_gbm$results %>%
+  kable(digits = 3, caption = "Table: GBM Binary Classification Result") %>%
+  kable_styling("striped", full_width = FALSE)
+```
+
+```{r}
+summary(fit_glmnet_lasso,s = 1) %>%
+  kable(digits = 3, caption = "Table: Logistic Regression With a Lasso Regression Penalty Summary") %>%
+  kable_styling("striped", full_width = FALSE)
+```
+
+```{r}
+summary(fit_glmnet_ridge,s = 1) %>%
+  kable(digits = 3, caption = "Table: Logistic Regression With a Ridge Regression Penalty Summary") %>%
+  kable_styling("striped", full_width = FALSE)
+```
+
+***
+[^1]: [Student Performance Data Set](https://archive.ics.uci.edu/ml/datasets/student+performance)
