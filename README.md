@@ -9,7 +9,7 @@ This is one of the ML project I did in undergraduate school. The codes are uploa
 ## Key-words
 - KNN Model
 - Random Forest
-- XG Booste Model
+- XG Boosted Model
 - Logistic Regression with Ridge constrain
 - Logistic Regression with LASSO constrain
 
